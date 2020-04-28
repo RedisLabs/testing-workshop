@@ -1,6 +1,6 @@
 use std::error::Error;
 
-//use indoc::indoc;
+// use indoc::indoc;
 use thiserror;
 use twoway;
 
@@ -22,31 +22,28 @@ enum RespError {
     String(String),
 }
 
-impl<T: AsRef<str>> From<T> for RespError {
-    fn from(message: T) -> Self {
-        RespError::String(message.as_ref().to_string())
+impl RespError {
+    fn boxed<E: Error + 'static>(e: E) -> Self {
+        Self::Boxed(Box::new(e))
     }
 }
 
-// impl<E: Error> From<E> for RespError {
-//     fn from(e: E) -> Self {
-//         RespError::Boxed(e)
-//     }
-// }
+impl From<&str> for RespError {
+    fn from(message: &str) -> Self {
+        Self::String(message.to_string())
+    }
+}
 
 fn resp_parse(data: &[u8]) -> Result<&[u8], RespError> {
     match &data {
-        [b'+', data @ ..] => {
-            let (line, _rest) = split_line(data);
-            line.ok_or("missing end of line deliminator".into())
-        }
+        [b'+', data @ ..] => match split_line(data) {
+            (Some(line), _) => Ok(line),
+            (None, _) => Err("missing end of line deliminator".into()),
+        },
         [b'$', data @ ..] => match split_line(data) {
             (Some(length), data) => {
-                let length = std::str::from_utf8(length).map_err(|e| RespError::Boxed(e.into()))?;
-
-                let length = length
-                    .parse::<usize>()
-                    .map_err(|e| RespError::Boxed(e.into()))?;
+                let length = std::str::from_utf8(length).map_err(RespError::boxed)?;
+                let length = length.parse::<usize>().map_err(RespError::boxed)?;
 
                 if data.len() < length + 2 {
                     Err(RespError::NotEnoughData {
@@ -93,20 +90,36 @@ fn test_resp_parse_bulk() {
         b"hello\r\nworld"
     );
 
-    // TODO: Figure out how to work best with the combination of dynamic and static errors.
-    // Also apply that in the Peta project (instead of the `failure` crate).
-    // Maybe add a wrapped Box<dyn Error> as one of the `enum` values?
     match resp_parse(b"$") {
-        Ok(data) => panic!("expected an error, got: {:?}", data),
         Err(RespError::MissingLength) => (),
         Err(e) => panic!("wrong error: {}", e),
+        Ok(data) => panic!("expected an error, got: {:?}", data),
     }
 
-    // assert_eq!(resp_parse(b"$11").unwrap(), b"???");
-    // assert_eq!(resp_parse(b"$11\r\n").unwrap(), b"???");
-    // assert_eq!(resp_parse(indoc!(b"
-    //     $12
-    //     hello
-    //     world
-    //     ")), b"hello\r\nworld");
+    match resp_parse(b"$11") {
+        Err(RespError::MissingLength) => (),
+        Err(e) => panic!("wrong error: {}", e),
+        Ok(data) => panic!("expected an error, got: {:?}", data),
+    }
+
+    match resp_parse(b"$11\r\n") {
+        Err(RespError::NotEnoughData { expected, found }) => {
+            assert_eq!(expected, 11 + 2);
+            assert_eq!(found, 0);
+        }
+        Err(e) => panic!("wrong error: {}", e),
+        Ok(data) => panic!("expected an error, got: {:?}", data),
+    }
+
+    match resp_parse(b"ZZZZZZZ") {
+        Err(RespError::InvalidData) => (),
+        Err(e) => panic!("wrong error: {}", e),
+        Ok(data) => panic!("expected an error, got: {:?}", data),
+    }
+
+    match resp_parse(b"") {
+        Err(RespError::InvalidData) => (),
+        Err(e) => panic!("wrong error: {}", e),
+        Ok(data) => panic!("expected an error, got: {:?}", data),
+    }
 }
