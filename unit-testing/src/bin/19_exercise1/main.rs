@@ -74,8 +74,14 @@ fn split_line(data: &[u8]) -> (Option<&[u8]>, &[u8]) {
 
 #[test]
 fn test_resp_parse_simple() {
-    assert_eq!(resp_parse(b"+hello\r\n").unwrap(), b"hello");
-    assert_eq!(resp_parse(b"+hel\r\nlo\r\n").unwrap(), b"hel");
+    let table: &[(&[u8], &[u8])] = &[
+        (b"+hello\r\n", b"hello"),
+        (b"+hel\r\nlo\r\n", b"hel"),
+    ];
+
+    for &(input, output) in table {
+        assert_eq!(resp_parse(input).unwrap(), output);
+    }
 }
 
 #[test]
