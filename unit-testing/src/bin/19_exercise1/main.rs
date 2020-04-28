@@ -50,7 +50,7 @@ fn resp_parse(data: &[u8]) -> Result<&[u8], RespError> {
                         expected: length + 2,
                         found: data.len(),
                     }
-                    .into())
+                        .into())
                 } else {
                     let data = &data[..length];
                     Ok(data)
@@ -86,15 +86,14 @@ fn test_resp_parse_simple() {
 
 #[test]
 fn test_resp_parse_bulk() {
-    assert_eq!(
-        resp_parse(b"$11\r\nhello world\r\n").unwrap(),
-        b"hello world",
-    );
+    let table: &[(&[u8], &[u8])] = &[
+        (b"$11\r\nhello world\r\n", b"hello world"),
+        (b"$12\r\nhello\r\nworld\r\n", b"hello\r\nworld"),
+    ];
 
-    assert_eq!(
-        resp_parse(b"$12\r\nhello\r\nworld\r\n").unwrap(),
-        b"hello\r\nworld"
-    );
+    for &(input, output) in table {
+        assert_eq!(resp_parse(input).unwrap(), output);
+    }
 
     match resp_parse(b"$") {
         Err(RespError::MissingLength) => (),
