@@ -7,19 +7,34 @@ use twoway;
 #[derive(thiserror::Error, Debug)]
 enum RespError {
     #[error("not enough data: found {found}, expected {expected}")]
-    NotEnoughData {
-        expected: usize,
-        found: usize,
-    },
+    NotEnoughData { expected: usize, found: usize },
 
     #[error("missing length")]
     MissingLength,
 
     #[error("invalid data")]
     InvalidData,
+
+    #[error("error: {0}")]
+    Boxed(Box<dyn Error>),
+
+    #[error("error: {0}")]
+    String(String),
 }
 
-fn resp_parse(data: &[u8]) -> Result<&[u8], Box<dyn Error>> {
+impl<T: AsRef<str>> From<T> for RespError {
+    fn from(message: T) -> Self {
+        RespError::String(message.as_ref().to_string())
+    }
+}
+
+// impl<E: Error> From<E> for RespError {
+//     fn from(e: E) -> Self {
+//         RespError::Boxed(e)
+//     }
+// }
+
+fn resp_parse(data: &[u8]) -> Result<&[u8], RespError> {
     match &data {
         [b'+', data @ ..] => {
             let (line, _rest) = split_line(data);
@@ -27,13 +42,18 @@ fn resp_parse(data: &[u8]) -> Result<&[u8], Box<dyn Error>> {
         }
         [b'$', data @ ..] => match split_line(data) {
             (Some(length), data) => {
-                let length: usize = std::str::from_utf8(length)?.parse()?;
+                let length = std::str::from_utf8(length).map_err(|e| RespError::Boxed(e.into()))?;
+
+                let length = length
+                    .parse::<usize>()
+                    .map_err(|e| RespError::Boxed(e.into()))?;
+
                 if data.len() < length + 2 {
                     Err(RespError::NotEnoughData {
                         expected: length + 2,
                         found: data.len(),
                     }
-                        .into())
+                    .into())
                 } else {
                     let data = &data[..length];
                     Ok(data)
@@ -78,12 +98,8 @@ fn test_resp_parse_bulk() {
     // Maybe add a wrapped Box<dyn Error> as one of the `enum` values?
     match resp_parse(b"$") {
         Ok(data) => panic!("expected an error, got: {:?}", data),
-        Err(e) => {
-            match *e.downcast::<RespError>().expect("not a RespError") {
-                RespError::MissingLength => {}
-                e => panic!("wrong error: {}", e),
-            }
-        }
+        Err(RespError::MissingLength) => (),
+        Err(e) => panic!("wrong error: {}", e),
     }
 
     // assert_eq!(resp_parse(b"$11").unwrap(), b"???");
