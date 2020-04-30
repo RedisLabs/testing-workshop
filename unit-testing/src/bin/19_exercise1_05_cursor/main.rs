@@ -1,4 +1,6 @@
 use std::error::Error;
+use std::io::prelude::*;
+use std::io::Cursor;
 
 use thiserror;
 use twoway;
@@ -34,6 +36,8 @@ impl From<&str> for RespError {
 }
 
 fn resp_parse(data: &[u8]) -> Result<&[u8], RespError> {
+    let cursor = Cursor::new();
+
     match &data {
         [b'+', data @ ..] => match split_line(data) {
             (Some(line), _) => Ok(line),

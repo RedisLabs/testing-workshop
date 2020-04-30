@@ -1,5 +1,6 @@
 use std::error::Error;
 
+// use indoc::indoc;
 use thiserror;
 use twoway;
 
@@ -79,6 +80,13 @@ fn test_resp_parse_simple() {
     }
 }
 
+// fn expect_error(result: Result<&[u8], RespError>, err: RespError) {
+//     match result {
+//         Err(e) => assert_eq!(e, err),
+//         r => panic!("got unexpected result: {:?}", r),
+//     }
+// }
+
 #[test]
 fn test_resp_parse_bulk() {
     let table: &[(&[u8], &[u8])] = &[
@@ -89,6 +97,8 @@ fn test_resp_parse_bulk() {
     for &(input, output) in table {
         assert_eq!(resp_parse(input).unwrap(), output);
     }
+
+    //expect_error!(resp_parse(b"$"), RespError::MissingLength);
 
     match resp_parse(b"$") {
         Err(RespError::MissingLength) => (),

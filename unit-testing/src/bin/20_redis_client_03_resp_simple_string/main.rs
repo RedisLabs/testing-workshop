@@ -25,7 +25,7 @@ fn resp_parse(reader: impl Read) -> Result<String> {
 fn main() -> Result<()> {
     let mut stream = TcpStream::connect("127.0.0.1:6379")?;
 
-    stream.write(b"PING\r\n")?;
+    stream.write_all(b"PING\r\n")?;
 
     let reply = resp_parse(stream)?;
     print!("{:?}", reply);

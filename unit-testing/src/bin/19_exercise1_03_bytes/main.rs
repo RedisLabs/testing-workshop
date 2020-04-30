@@ -1,7 +1,10 @@
 use std::error::Error;
 
+// use indoc::indoc;
 use thiserror;
 use twoway;
+
+type Bytes = [u8];
 
 #[derive(thiserror::Error, Debug)]
 enum RespError {
@@ -33,7 +36,7 @@ impl From<&str> for RespError {
     }
 }
 
-fn resp_parse(data: &[u8]) -> Result<&[u8], RespError> {
+fn resp_parse(data: &Bytes) -> Result<&Bytes, RespError> {
     match &data {
         [b'+', data @ ..] => match split_line(data) {
             (Some(line), _) => Ok(line),
@@ -60,7 +63,7 @@ fn resp_parse(data: &[u8]) -> Result<&[u8], RespError> {
     }
 }
 
-fn split_line(data: &[u8]) -> (Option<&[u8]>, &[u8]) {
+fn split_line(data: &Bytes) -> (Option<&Bytes>, &Bytes) {
     twoway::find_bytes(data, b"\r\n")
         .map(|i| {
             let line = &data[..i];
@@ -72,16 +75,23 @@ fn split_line(data: &[u8]) -> (Option<&[u8]>, &[u8]) {
 
 #[test]
 fn test_resp_parse_simple() {
-    let table: &[(&[u8], &[u8])] = &[(b"+hello\r\n", b"hello"), (b"+hel\r\nlo\r\n", b"hel")];
+    let table: &[(&Bytes, &Bytes)] = &[(b"+hello\r\n", b"hello"), (b"+hel\r\nlo\r\n", b"hel")];
 
     for &(input, output) in table {
         assert_eq!(resp_parse(input).unwrap(), output);
     }
 }
 
+// fn expect_error(result: Result<&bytes, RespError>, err: RespError) {
+//     match result {
+//         Err(e) => assert_eq!(e, err),
+//         r => panic!("got unexpected result: {:?}", r),
+//     }
+// }
+
 #[test]
 fn test_resp_parse_bulk() {
-    let table: &[(&[u8], &[u8])] = &[
+    let table: &[(&Bytes, &Bytes)] = &[
         (b"$11\r\nhello world\r\n", b"hello world"),
         (b"$12\r\nhello\r\nworld\r\n", b"hello\r\nworld"),
     ];
@@ -89,6 +99,8 @@ fn test_resp_parse_bulk() {
     for &(input, output) in table {
         assert_eq!(resp_parse(input).unwrap(), output);
     }
+
+    //expect_error!(resp_parse(b"$"), RespError::MissingLength);
 
     match resp_parse(b"$") {
         Err(RespError::MissingLength) => (),

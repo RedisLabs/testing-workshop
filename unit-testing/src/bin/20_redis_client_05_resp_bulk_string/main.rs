@@ -34,13 +34,13 @@ fn parse_bulk_string(mut reader: impl BufRead) -> Result<String> {
     reader.read_exact(data.as_mut_slice())?;
     reader.read_exact(&mut [0; 2])?; // Throw away terminating "\r\n"
 
-    Ok(format!("{}", String::from_utf8(data)?))
+    Ok(String::from_utf8(data)?)
 }
 
 fn main() -> Result<()> {
     let mut stream = TcpStream::connect("127.0.0.1:6379")?;
 
-    stream.write(b"INFO\r\n")?;
+    stream.write_all(b"INFO\r\n")?;
 
     let reply = resp_parse(stream)?;
 
