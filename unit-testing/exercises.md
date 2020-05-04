@@ -54,7 +54,7 @@ _Bulk String_:
    
    - Empty Bulk Strings (`b"$0\r\n\r\n"`)
    - Null Bulk Strings (`b"$-1\r\n"`)
-   - Bulk Strings with embedded `"\r\n"`, to ensure the length is handled correctly: `b"$12\r\rnhello\r\nworld\r\n"`
+   - Bulk Strings with embedded `"\r\n"`, to ensure the length is handled correctly: `b"$12\r\nhello\r\nworld\r\n"`
    - Invalid input (not starting with either `b"$"` or `b"+"`)
    - Very long Bulk Strings: Redis permits keys and values up to 512 MB. What is the largest data your code can handle?
      How long does it take to parse the data?
