@@ -1,52 +1,31 @@
-use std::error::Error;
+use std::str;
 
-use thiserror;
-use twoway;
+const NEWLINE: &[u8] = b"\r\n";
 
-#[derive(thiserror::Error, Debug)]
+#[derive(Debug, PartialEq)]
 enum RespError {
-    #[error("not enough data: found {found}, expected {expected}")]
-    NotEnoughData { expected: usize, found: usize },
-
-    #[error("missing length")]
     MissingLength,
-
-    #[error("invalid data")]
+    InvalidLength,
     InvalidData,
-
-    #[error("error: {0}")]
-    Boxed(Box<dyn Error>),
-
-    #[error("error: {0}")]
-    String(String),
-}
-
-impl RespError {
-    fn boxed<E: Error + 'static>(e: E) -> Self {
-        Self::Boxed(Box::new(e))
-    }
-}
-
-impl From<&str> for RespError {
-    fn from(message: &str) -> Self {
-        Self::String(message.to_string())
-    }
+    MissingEndOfLine,
+    NotEnoughData { expected: usize, found: usize },
 }
 
 fn resp_parse(data: &[u8]) -> Result<&[u8], RespError> {
     match &data {
         [b'+', data @ ..] => match split_line(data) {
             (Some(line), _) => Ok(line),
-            (None, _) => Err("missing end of line deliminator")?,
+            (None, _) => Err(RespError::MissingEndOfLine),
         },
         [b'$', data @ ..] => match split_line(data) {
             (Some(length), data) => {
-                let length = std::str::from_utf8(length).map_err(RespError::boxed)?;
-                let length = length.parse::<usize>().map_err(RespError::boxed)?;
+                let length = str::from_utf8(length).map_err(|_| RespError::InvalidLength)?;
+                let length: usize = length.parse().map_err(|_| RespError::InvalidLength)?;
 
-                if data.len() < length + 2 {
+                let expected_length = length + NEWLINE.len();
+                if data.len() < expected_length {
                     Err(RespError::NotEnoughData {
-                        expected: length + 2,
+                        expected: expected_length,
                         found: data.len(),
                     })?
                 } else {
@@ -61,60 +40,81 @@ fn resp_parse(data: &[u8]) -> Result<&[u8], RespError> {
 }
 
 fn split_line(data: &[u8]) -> (Option<&[u8]>, &[u8]) {
-    twoway::find_bytes(data, b"\r\n")
+    find_subsequence(data, NEWLINE)
         .map(|i| {
             let line = &data[..i];
-            let rest = &data[i + 2..];
+            let rest = &data[i + NEWLINE.len()..];
             (Some(line), rest)
         })
         .unwrap_or((None, data))
 }
 
+fn find_subsequence(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    haystack
+        .windows(needle.len())
+        .position(|window| window == needle)
+}
+
 #[test]
 fn test_resp_parse_simple() {
-    let table: &[(&[u8], &[u8])] = &[(b"+hello\r\n", b"hello"), (b"+hel\r\nlo\r\n", b"hel")];
+    let table = &[
+        (b"+hello\r\n".as_ref(), b"hello".as_ref()),
+        (b"+hello\r\nfoo", b"hello"),
+        (b"+hel\r\nlo\r\n", b"hel"),
+        (b"+hel\rlo\r\n", b"hel\rlo"),
+    ];
 
-    for &(input, output) in table {
-        assert_eq!(resp_parse(input).unwrap(), output);
+    for &(input, expected) in table {
+        assert_parse_eq(input, expected);
+    }
+}
+
+fn assert_parse_eq(input: &[u8], expected: &[u8]) {
+    let parsed = resp_parse(input).unwrap();
+    assert_eq!(
+        parsed,
+        expected,
+        "expected: '{}', got: '{}'",
+        String::from_utf8_lossy(expected),
+        String::from_utf8_lossy(parsed),
+    );
+}
+
+fn assert_parse_error(input: &[u8], error: &RespError) {
+    match resp_parse(input) {
+        Err(ref e) => assert_eq!(e, error),
+        r => panic!("got unexpected result: {:?}", r),
     }
 }
 
 #[test]
 fn test_resp_parse_bulk() {
-    let table: &[(&[u8], &[u8])] = &[
-        (b"$11\r\nhello world\r\n", b"hello world"),
+    let table_good = &[
+        (b"$11\r\nhello world\r\n".as_ref(), b"hello world".as_ref()),
         (b"$12\r\nhello\r\nworld\r\n", b"hello\r\nworld"),
+        (b"$11\r\nhello\rworld\r\n", b"hello\rworld"),
     ];
 
-    for &(input, output) in table {
-        assert_eq!(resp_parse(input).unwrap(), output);
+    for (input, expected) in table_good {
+        assert_parse_eq(input, expected);
     }
 
-    match resp_parse(b"$") {
-        Err(RespError::MissingLength) => (),
-        r => panic!("got unexpected result: {:?}", r),
-    }
+    let table_bad = &[
+        (b"$".as_ref(), RespError::MissingLength),
+        (b"$11", RespError::MissingLength),
+        (b"", RespError::InvalidData),
+        (b"ZZZZZZZ", RespError::InvalidData),
+        (b"$11hello\r\n", RespError::InvalidLength),
+        (
+            b"$11\r\n",
+            RespError::NotEnoughData {
+                expected: 11 + NEWLINE.len(),
+                found: 0,
+            },
+        ),
+    ];
 
-    match resp_parse(b"$11") {
-        Err(RespError::MissingLength) => (),
-        r => panic!("got unexpected result: {:?}", r),
-    }
-
-    match resp_parse(b"$11\r\n") {
-        Err(RespError::NotEnoughData { expected, found }) => {
-            assert_eq!(expected, 11 + 2);
-            assert_eq!(found, 0);
-        }
-        r => panic!("got unexpected result: {:?}", r),
-    }
-
-    match resp_parse(b"ZZZZZZZ") {
-        Err(RespError::InvalidData) => (),
-        r => panic!("got unexpected result: {:?}", r),
-    }
-
-    match resp_parse(b"") {
-        Err(RespError::InvalidData) => (),
-        r => panic!("got unexpected result: {:?}", r),
+    for (input, expected_error) in table_bad {
+        assert_parse_error(input, expected_error);
     }
 }
