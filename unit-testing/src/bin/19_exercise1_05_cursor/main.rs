@@ -37,7 +37,7 @@ impl From<&str> for RespError {
 
 fn resp_parse(data: &[u8]) -> Result<&[u8], RespError> {
     let cursor = Cursor::new(data);
-    cursor.read_until()
+    //cursor.read_until()
 
     match &data {
         [b'+', data @ ..] => match split_line(data) {

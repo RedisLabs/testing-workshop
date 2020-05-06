@@ -8,34 +8,46 @@ enum RespError {
     InvalidLength,
     InvalidData,
     MissingEndOfLine,
-    NotEnoughData { expected: usize, found: usize },
+    NotEnoughData {
+        required_len: usize,
+        actual_len: usize,
+    },
 }
 
 fn resp_parse(data: &[u8]) -> Result<&[u8], RespError> {
     match &data {
-        [b'+', data @ ..] => match split_line(data) {
-            (Some(line), _) => Ok(line),
-            (None, _) => Err(RespError::MissingEndOfLine),
-        },
-        [b'$', data @ ..] => match split_line(data) {
-            (Some(length), data) => {
-                let length = str::from_utf8(length).map_err(|_| RespError::InvalidLength)?;
-                let length: usize = length.parse().map_err(|_| RespError::InvalidLength)?;
-
-                let expected_length = length + NEWLINE.len();
-                if data.len() < expected_length {
-                    Err(RespError::NotEnoughData {
-                        expected: expected_length,
-                        found: data.len(),
-                    })?
-                } else {
-                    let data = &data[..length];
-                    Ok(data)
-                }
-            }
-            (None, _) => Err(RespError::MissingLength),
-        },
+        [b'+', data @ ..] => parse_simple_string(data),
+        [b'$', data @ ..] => parse_bulk_string(data),
         _ => Err(RespError::InvalidData),
+    }
+}
+
+fn parse_simple_string(data: &[u8]) -> Result<&[u8], RespError> {
+    match split_line(data) {
+        (Some(line), _) => Ok(line),
+        (None, _) => Err(RespError::MissingEndOfLine),
+    }
+}
+
+fn parse_bulk_string(data: &[u8]) -> Result<&[u8], RespError> {
+    match split_line(data) {
+        (Some(length), data) => {
+            let length = str::from_utf8(length).map_err(|_| RespError::InvalidLength)?;
+            let length: usize = length.parse().map_err(|_| RespError::InvalidLength)?;
+
+            let required_len = length + NEWLINE.len();
+            let actual_len = data.len();
+            if actual_len < required_len {
+                Err(RespError::NotEnoughData {
+                    required_len,
+                    actual_len,
+                })
+            } else {
+                let data = &data[..length];
+                Ok(data)
+            }
+        }
+        (None, _) => Err(RespError::MissingLength),
     }
 }
 
@@ -69,24 +81,6 @@ fn test_resp_parse_simple() {
     }
 }
 
-fn assert_parse_eq(input: &[u8], expected: &[u8]) {
-    let parsed = resp_parse(input).unwrap();
-    assert_eq!(
-        parsed,
-        expected,
-        "expected: '{}', got: '{}'",
-        String::from_utf8_lossy(expected),
-        String::from_utf8_lossy(parsed),
-    );
-}
-
-fn assert_parse_error(input: &[u8], error: &RespError) {
-    match resp_parse(input) {
-        Err(ref e) => assert_eq!(e, error),
-        r => panic!("got unexpected result: {:?}", r),
-    }
-}
-
 #[test]
 fn test_resp_parse_bulk() {
     let table_good = &[
@@ -108,13 +102,31 @@ fn test_resp_parse_bulk() {
         (
             b"$11\r\n",
             RespError::NotEnoughData {
-                expected: 11 + NEWLINE.len(),
-                found: 0,
+                required_len: 11 + NEWLINE.len(),
+                actual_len: 0,
             },
         ),
     ];
 
     for (input, expected_error) in table_bad {
         assert_parse_error(input, expected_error);
+    }
+}
+
+fn assert_parse_eq(input: &[u8], expected: &[u8]) {
+    let parsed = resp_parse(input).unwrap();
+    assert_eq!(
+        parsed,
+        expected,
+        "expected: '{}', got: '{}'",
+        String::from_utf8_lossy(expected),
+        String::from_utf8_lossy(parsed),
+    );
+}
+
+fn assert_parse_error(input: &[u8], error: &RespError) {
+    match resp_parse(input) {
+        Err(ref e) => assert_eq!(e, error),
+        r => panic!("got unexpected result: {:?}", r),
     }
 }
