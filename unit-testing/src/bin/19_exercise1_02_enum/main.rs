@@ -29,12 +29,25 @@ fn resp_parse(data: &[u8]) -> Result<RedisValue, RespError> {
     }
 }
 
+fn ensure_no_invalid_chars(data: &[u8]) -> Result<(), RespError> {
+    for byte in data {
+        if NEWLINE.contains(byte) {
+            return Err(RespError::InvalidData);
+        }
+    }
+    Ok(())
+}
+
 fn parse_simple_string(data: &[u8]) -> Result<RedisValue, RespError> {
     match split_line(data) {
-        (Some(line), _) => Ok(RedisValue::SimpleString(line)),
+        (Some(line), _) => {
+            ensure_no_invalid_chars(line)?;
+            Ok(RedisValue::SimpleString(line))
+        },
         (None, _) => Err(RespError::MissingEndOfLine),
     }
 }
+
 
 fn parse_bulk_string(data: &[u8]) -> Result<RedisValue, RespError> {
     match split_line(data) {
@@ -84,15 +97,24 @@ fn find_subsequence(haystack: &[u8], needle: &[u8]) -> Option<usize> {
 
 #[test]
 fn test_resp_parse_simple() {
-    let table = &[
+    let table_good = &[
         (b"+hello\r\n".as_ref(), b"hello".as_ref()),
         (b"+hello\r\nfoo", b"hello"),
         (b"+hel\r\nlo\r\n", b"hel"),
-        (b"+hel\rlo\r\n", b"hel\rlo"),
     ];
 
-    for &(input, expected) in table {
+    for &(input, expected) in table_good {
         assert_parse_eq(input, &RedisValue::SimpleString(expected));
+    }
+
+    let table_bad = &[
+        (b"+hel\rlo\r\n".as_ref(), RespError::InvalidData),
+        (b"+hel\nlo\r\n", RespError::InvalidData),
+        (b"+h\ni\n", RespError::MissingEndOfLine),
+    ];
+
+    for (input, expected_error) in table_bad {
+        assert_parse_error(input, expected_error);
     }
 }
 
