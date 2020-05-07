@@ -69,6 +69,8 @@ fn find_subsequence(haystack: &[u8], needle: &[u8]) -> Option<usize> {
 
 #[test]
 fn test_resp_parse_simple() {
+    // table-driven test
+
     let table = &[
         (b"+hello\r\n".as_ref(), b"hello".as_ref()),
         (b"+hello\r\nfoo", b"hello"),
